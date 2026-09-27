@@ -1,0 +1,64 @@
+server:
+  port: 8080
+
+spring:
+  application:
+    name: order-perf-demo
+  data:
+    redis:
+      # 单机测试模式或哨兵/集群模式
+      host: localhost
+      port: 6379
+      database: 0
+      timeout: 3000ms
+      lettuce:
+        pool:
+          max-active: 16
+          max-idle: 8
+          min-idle: 2
+          max-wait: 2000ms
+
+# 自定义 Redis 主从读写分离配置演示
+demo:
+  redis:
+    read-write-split:
+      enabled: true
+      master:
+        host: 127.0.0.1
+        port: 6379
+      replicas:
+        - host: 127.0.0.1
+          port: 6380
+        - host: 127.0.0.1
+          port: 6381
+
+# 订单详情线程池配置
+order:
+  thread-pool:
+    core-size: 8
+    max-size: 16
+    queue-capacity: 200
+    keep-alive-seconds: 60
+    thread-name-prefix: "order-detail-pool-"
+
+# Knife4j 与 SpringDoc 接口文档配置
+knife4j:
+  enable: true
+  setting:
+    language: zh-CN
+    enable-swagger-models: true
+    enable-document-manage: true
+    enable-version: false
+  openapi:
+    title: "ERP 与 C 端商城机制演示 API"
+    description: "订单多服务并行组装、Redis 主从读写分离，以及商品缓存、下单限流和演示请求头刷新"
+    version: "v1.0.0"
+
+springdoc:
+  swagger-ui:
+    path: /swagger-ui.html
+    tags-sorter: alpha
+    operations-sorter: alpha
+  api-docs:
+    path: /v3/api-docs
+
