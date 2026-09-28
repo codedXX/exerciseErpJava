@@ -29,15 +29,12 @@ class Knife4jDocsTest {
         assertTrue(api.at("/paths/~1api~1demo~1orders~1submit/post/summary").asText().contains("限流"));
         JsonNode parameters = api.at("/paths/~1api~1demo~1products~1{id}~1refresh/post/parameters");
         JsonNode header = null;
-        JsonNode version = null;
         for (JsonNode parameter : parameters) {
             if ("X-Demo-Refresh".equals(parameter.path("name").asText())) header = parameter;
-            if ("expectedVersion".equals(parameter.path("name").asText())) version = parameter;
+            assertNotEquals("expectedVersion", parameter.path("name").asText());
         }
         assertNotNull(header);
         assertEquals("header", header.path("in").asText());
-        assertNotNull(version);
-        assertEquals("string", version.path("schema").path("type").asText());
     }
 
     @Test

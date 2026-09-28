@@ -35,16 +35,23 @@ class MallMechanicsTest {
     }
 
     @Test
-    void refreshRejectsOutdatedVersionBeforeReadingProduct() {
+    void refreshDeletesOnlyTheProductCacheWhileHoldingItsLock() {
         StringRedisTemplate redis = mock(StringRedisTemplate.class);
-        ProductStore store = mock(ProductStore.class);
         ProductCacheService cache = mock(ProductCacheService.class);
-        ChannelRefreshService service = new ChannelRefreshService(redis, store, cache);
+        ChannelRefreshService service = new ChannelRefreshService(redis, cache);
         when(cache.tryLock(10200)).thenReturn("owner");
-        when(redis.opsForValue()).thenReturn(mock(ValueOperations.class));
-        when(redis.opsForValue().get("mall:product:version:10200")).thenReturn("1");
-        assertEquals(ChannelRefreshService.RefreshResult.CONFLICT, service.refresh(10200, 0));
-        verifyNoInteractions(store);
+        assertEquals(ChannelRefreshService.RefreshResult.DELETED, service.refresh(10200));
+        verify(redis).delete("mall:product:detail:10200");
+        verify(cache).unlock(10200, "owner");
+    }
+
+    @Test
+    void refreshReturnsBusyWithoutDeletingCacheWhenProductLockIsHeld() {
+        StringRedisTemplate redis = mock(StringRedisTemplate.class);
+        ProductCacheService cache = mock(ProductCacheService.class);
+        ChannelRefreshService service = new ChannelRefreshService(redis, cache);
+        assertEquals(ChannelRefreshService.RefreshResult.BUSY, service.refresh(10200));
+        verifyNoInteractions(redis);
     }
 
     @Test
@@ -85,7 +92,7 @@ class MallMechanicsTest {
         ChannelRefreshService refresh = mock(ChannelRefreshService.class);
         ProductRefreshController controller = new ProductRefreshController(new ProductStore(), refresh);
         ResponseStatusException error = assertThrows(ResponseStatusException.class,
-                () -> controller.refresh(10200, 0, null));
+                () -> controller.refresh(10200, null));
         assertEquals(HttpStatus.UNAUTHORIZED, error.getStatusCode());
         verifyNoInteractions(refresh);
     }
@@ -93,11 +100,10 @@ class MallMechanicsTest {
     @Test
     void demoHeaderAllowsRefreshWithoutConfiguredToken() {
         ChannelRefreshService refresh = mock(ChannelRefreshService.class);
-        when(refresh.refresh(10200, 0)).thenReturn(ChannelRefreshService.RefreshResult.UPDATED);
-        when(refresh.version(10200)).thenReturn(1L);
+        when(refresh.refresh(10200)).thenReturn(ChannelRefreshService.RefreshResult.DELETED);
         ProductRefreshController controller = new ProductRefreshController(new ProductStore(), refresh);
-        ResponseEntity<?> response = controller.refresh(10200, 0, "true");
+        ResponseEntity<?> response = controller.refresh(10200, "true");
         assertEquals(HttpStatus.OK, response.getStatusCode());
-        assertEquals(Map.of("result", "UPDATED", "version", 1L), response.getBody());
+        assertEquals(Map.of("result", "DELETED"), response.getBody());
     }
 }

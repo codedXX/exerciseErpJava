@@ -22,7 +22,7 @@ mvn '-Dmaven.compiler.fork=true' spring-boot:run '-Dspring-boot.run.arguments=--
 
 端口默认 `8080`。下面每个 `bash` 代码块都只有**一条标准 cURL 请求**，可分别复制到 Apifox 的「导入 cURL」中。启动 Redis 和应用的命令只是环境准备，不需要导入 Apifox。`X-Demo-User-Id` 是演示身份，不具备认证能力。
 
-也可以打开 **Knife4j**：`http://localhost:8080/doc.html`，在「3.1 商品详情缓存」「3.2 下单限流」「3.3 商品强制刷新」三个分组中直接调试这些接口。强制刷新时在「请求头部」勾选 `X-Demo-Refresh` 这一行，值填 `true`；在「请求参数」填写商品 ID 和当前版本（首次通常为 `0`，直接填 `0` 即可）。普通查询和下单不用这个请求头。Apifox 仍可使用下方 cURL，或从 `http://localhost:8080/v3/api-docs` 导入 OpenAPI 文档。
+也可以打开 **Knife4j**：`http://localhost:8080/doc.html`，在「3.1 商品详情缓存」「3.2 下单限流」「3.3 商品强制刷新」三个分组中直接调试这些接口。强制刷新时在「请求头部」勾选 `X-Demo-Refresh` 这一行，值填 `true`；在「请求参数」填写商品 ID。普通查询和下单不用这个请求头。Apifox 仍可使用下方 cURL，或从 `http://localhost:8080/v3/api-docs` 导入 OpenAPI 文档。
 
 ## 1. 商品详情缓存互斥与二次检查
 
@@ -98,13 +98,13 @@ curl --location --request POST 'http://localhost:8080/api/demo/orders/submit' --
 
 ## 3. 普通访问与演示刷新分流
 
-**含义**：普通 `GET /products/{id}` 给商城用户读取；演示刷新 `POST /products/{id}/refresh` 要求请求头 `X-Demo-Refresh: true`。这只是本地功能开关，任何调用方都能自行添加，不构成身份认证。商品版本拒绝旧任务，商品互斥锁防止并发回源。刷新先从主数据构造新值，再用 Lua 原子替换商品缓存和递增版本。普通 GET 在刷新中可继续读旧缓存，不经历“先删掉、等所有人一起回源”的空窗。
+**含义**：普通 `GET /products/{id}` 给商城用户读取；演示刷新 `POST /products/{id}/refresh` 要求请求头 `X-Demo-Refresh: true`。这只是本地功能开关，任何调用方都能自行添加，不构成身份认证。刷新获取商品互斥锁后只删除详情缓存，不立即回源；下一次普通 GET 缓存未命中时，会通过同一把锁互斥回源并回填。
 
 ### 按顺序执行的 cURL 测试
 
 先按上面的“启动”步骤运行 Redis 和应用。若 8080 端口仍运行旧版程序，先重启以加载新代码。以下每个代码块都是一条可单独复制的 cURL 请求，适合导入 Apifox。在 Windows PowerShell 直接运行时，把命令开头的 `curl` 改为 `curl.exe`。
 
-本例使用商品 `10200`。为观察“刷新前仍读旧缓存”，请在 **2 分钟缓存有效期内**完成下面步骤；若 Redis 中已有该商品的旧缓存或版本，请换一个未使用过的商品 ID，并将全部 URL 中的 `10200` 改成新 ID。刷新请求中的 `expectedVersion` 必须使用第 2 步实际查到的版本，下面的 `0` 仅是新商品的示例。
+本例使用商品 `10200`。为观察“刷新前仍读旧缓存”，请在 **2 分钟缓存有效期内**完成下面步骤；若 Redis 中已有该商品的旧缓存，请换一个未使用过的商品 ID，并将全部 URL 中的 `10200` 改成新 ID。
 
 1. 先写入模拟 ERP 的旧商品主数据：
 
@@ -112,67 +112,49 @@ curl --location --request POST 'http://localhost:8080/api/demo/orders/submit' --
 curl --location --request PUT 'http://localhost:8080/api/demo/erp/products/10200' --header 'Content-Type: application/json' --data-raw '{"name":"before","priceCents":19900}'
 ```
 
-2. 查询当前缓存版本。新商品通常返回 `0`：
-
-```bash
-curl --location --request GET 'http://localhost:8080/api/demo/products/10200/version'
-```
-
-3. 查询商品详情，将 `before` 写入缓存：
+2. 查询商品详情，将 `before` 写入缓存：
 
 ```bash
 curl --location --request GET 'http://localhost:8080/api/demo/products/10200'
 ```
 
-4. 修改模拟 ERP 主数据。此操作不会主动删除商品缓存：
+3. 修改模拟 ERP 主数据。此操作不会主动删除商品缓存：
 
 ```bash
 curl --location --request PUT 'http://localhost:8080/api/demo/erp/products/10200' --header 'Content-Type: application/json' --data-raw '{"name":"after","priceCents":20900}'
 ```
 
-5. 再查详情，`product.name` 应仍为 `before`：
+4. 再查详情，`product.name` 应仍为 `before`：
 
 ```bash
 curl --location --request GET 'http://localhost:8080/api/demo/products/10200'
 ```
 
-6. 不带演示请求头强制刷新，预期 HTTP `401`，缓存不变：
+5. 不带演示请求头强制刷新，预期 HTTP `401`，缓存不变：
 
 ```bash
-curl --include --request POST 'http://localhost:8080/api/demo/products/10200/refresh?expectedVersion=0'
+curl --include --request POST 'http://localhost:8080/api/demo/products/10200/refresh'
 ```
 
-7. 请求头的值不是 `true` 时也应返回 HTTP `401`：
+6. 请求头的值不是 `true` 时也应返回 HTTP `401`：
 
 ```bash
-curl --include --request POST 'http://localhost:8080/api/demo/products/10200/refresh?expectedVersion=0' --header 'X-Demo-Refresh: false'
+curl --include --request POST 'http://localhost:8080/api/demo/products/10200/refresh' --header 'X-Demo-Refresh: false'
 ```
 
-8. 带演示请求头刷新，预期 HTTP `200`，响应中的 `result` 为 `UPDATED`：
+7. 带演示请求头删除缓存，预期 HTTP `200`，响应中的 `result` 为 `DELETED`：
 
 ```bash
-curl --include --request POST 'http://localhost:8080/api/demo/products/10200/refresh?expectedVersion=0' --header 'X-Demo-Refresh: true'
+curl --include --request POST 'http://localhost:8080/api/demo/products/10200/refresh' --header 'X-Demo-Refresh: true'
 ```
 
-9. 再查详情，`product.name` 应变为 `after`：
+8. 再查详情，普通查询会回源，`product.name` 应变为 `after`：
 
 ```bash
 curl --location --request GET 'http://localhost:8080/api/demo/products/10200'
 ```
 
-10. 再查版本，应比第 2 步增加 `1`：
-
-```bash
-curl --location --request GET 'http://localhost:8080/api/demo/products/10200/version'
-```
-
-11. 用第 2 步的旧版本重复刷新，预期 HTTP `409 CONFLICT`：
-
-```bash
-curl --include --request POST 'http://localhost:8080/api/demo/products/10200/refresh?expectedVersion=0' --header 'X-Demo-Refresh: true'
-```
-
-同一商品正在刷新且锁未释放时，另一个刷新请求会得到 `423 BUSY`；本例的内存主数据读取很快，手工连续点击不一定能复现。商品 GET 和强制刷新没有按请求次数配置独立限流，它们通过商品互斥锁限制并发回源；上文 Redis 滑动窗口限流只用于下单。
+同一商品正在刷新且锁未释放时，另一个刷新请求会得到 `423 BUSY`；本例的删除操作很快，手工连续点击不一定能复现。商品 GET 和强制刷新没有按请求次数配置独立限流，它们通过商品互斥锁限制并发回源；上文 Redis 滑动窗口限流只用于下单。
 
 **边界**：这是单进程内存主数据加单机 Redis 的教学示例。它不接真实 MySQL/MongoDB，也不含真实登录、支付、订单持久化。`X-Demo-Refresh` 只是演示开关，生产环境应改用真实内部身份认证和访问审计。缓存互斥锁的租期必须大于最坏回源时间；实际部署还需监控、限流拒绝率及数据库与缓存的失败补偿。`dbReadCount` 是本进程计数，不能用于计算生产缓存命中率。
 
@@ -234,3 +216,54 @@ curl --include --request POST 'http://localhost:8080/api/demo/products/10200/ref
 > 如果分别执行 `tryLock(10200)` 和 `tryLock(10300)`，锁键不同，两个请求都可以拿到锁，并行处理。
 >
 > 这里锁是**按商品 ID** 区分的，不是按用户区分的。锁正常释放后，或 10 秒过期后，后续请求又可以获取它。
+
+
+
+> **所以是setIfAbsent方法在加锁还是lockKey方法在加锁****
+>
+> 
+>
+> 是 **`setIfAbsent` 方法在加锁**。`lockKey(id)` 只负责生成锁的键名，例如 `mall:product:lock:10200`。
+>
+> 可以理解为：`lockKey` 告诉 Redis“锁放在哪里”，`setIfAbsent` 才执行“如果这里还没有锁，就写入并取得锁”。
+
+> **那redis.execute(UNLOCK, List.of(lockKey(*id*)), *owner*);是什么意思**
+>
+> 
+>
+> 抱歉，我前面把重点讲偏了。这行代码的意思就是：**尝试释放商品 `id` 对应的锁，但只有锁仍属于当前 `owner` 时才释放。**
+>
+> ```
+> redis.execute(UNLOCK, List.of(lockKey(id)), owner);
+> ```
+>
+> 从左到右看：
+>
+> - `UNLOCK`：指定要执行的解锁逻辑。
+> - `List.of(lockKey(id))`：指定要解开的锁。`lockKey(id)` 生成锁名，`List.of(...)` 把它放进参数列表。
+> - `owner`：表明“我是当初拿到这把锁的请求”。
+>
+> 你在业务代码里记住这一点就够了：**拿锁成功得到 `owner`，用完后带着同一个 `owner` 解锁。**
+
+
+
+> 如果你问的是**当前代码如何实现**，答案是：只做了**入口分流和按商品互斥**，还没有实现普通访问、强制刷新各自的请求频率限流。
+>
+> - 普通访问走 `GET /api/demo/products/{id}`：缓存命中直接返回；未命中时按商品 ID 抢锁，只有拿到锁且二次检查仍未命中的请求才回源。[ProductCacheService.java (line 33)](F:/myProjects/exerciseErpJava/src/main/java/com/example/demo/service/ProductCacheService.java:33)
+> - 强制刷新走 `POST /api/demo/products/{id}/refresh`：使用同一把商品锁，拿到锁后删除详情缓存；抢锁失败返回 `423`。下一次普通访问再负责回源重建。[ChannelRefreshService.java (line 19)](F:/myProjects/exerciseErpJava/src/main/java/com/example/demo/service/ChannelRefreshService.java:19)
+>
+> 这把锁能防止**同一商品同时大量回源**，但它不是按时间窗口计算请求次数的限流。连续多次刷新仍可能反复删缓存、触发回源。另外，刷新接口检查的 `X-Demo-Refresh: true` 只是演示开关，**不是真实鉴权**。[ProductRefreshController.java (line 58)](F:/myProjects/exerciseErpJava/src/main/java/com/example/demo/controller/ProductRefreshController.java:58)
+>
+> 因此，原句中的“分流限流、鉴权保护、避免删缓存回源风暴”目前**没有完整落地**；准确描述现状应是“普通查询与刷新分入口，按商品 ID 共用互斥锁控制并发回源”。
+
+> **什么叫"删缓存-重新回源"风暴？**
+>
+> 
+>
+> “删缓存—重新回源”风暴，是指**缓存被删除后，大量查询同时发现缓存未命中，一起请求下游服务或数据库**。
+>
+> 例如，一个热门商品每秒有 1000 次详情查询。刷新接口删除它的缓存后，如果没有保护，这 1000 次查询可能都去读取商品主数据；原本由缓存承受的流量，瞬间压到下游。
+>
+> 当前项目用**按商品 ID 加锁和拿锁后二次检查缓存**来挡住同一轮并发回源：通常只有一个查询负责读取并回填，其他查询等待缓存出现。[ProductCacheService.java (line 42)](F:/myProjects/exerciseErpJava/src/main/java/com/example/demo/service/ProductCacheService.java:42)
+>
+> 但这只能控制**同一时刻**的回源。现在刷新接口可以反复删除缓存，又没有独立的频率限流；如果有人持续调用刷新，仍可能造成“删除 → 回源 → 再删除 → 再回源”的持续压力。
