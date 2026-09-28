@@ -20,6 +20,12 @@ spring:
 
 # 自定义 Redis 主从读写分离配置演示
 demo:
+  product-refresh:
+    token: ${MALL_REFRESH_TOKEN:}
+  product-limits:
+    read-global-per-second: 500
+    read-product-per-second: 100
+    refresh-global-per-minute: 20
   redis:
     read-write-split:
       enabled: true

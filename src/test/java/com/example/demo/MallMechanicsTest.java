@@ -4,6 +4,8 @@ import com.example.demo.repository.ProductStore;
 import com.example.demo.service.ProductCacheService;
 import com.example.demo.service.OrderRateLimiter;
 import com.example.demo.service.ChannelRefreshService;
+import com.example.demo.service.ProductTrafficLimiter;
+import com.example.demo.service.RefreshAuthorization;
 import com.example.demo.controller.OrderSubmitController;
 import com.example.demo.controller.ProductRefreshController;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -88,21 +90,27 @@ class MallMechanicsTest {
     }
 
     @Test
-    void refreshWithoutDemoHeaderReturns401EvenWithoutConfiguredToken() {
+    void refreshWithoutBearerHeaderReturns401() {
         ChannelRefreshService refresh = mock(ChannelRefreshService.class);
-        ProductRefreshController controller = new ProductRefreshController(new ProductStore(), refresh);
+        ProductTrafficLimiter limiter = mock(ProductTrafficLimiter.class);
+        ProductRefreshController controller = new ProductRefreshController(new ProductStore(), refresh,
+                limiter, new RefreshAuthorization("test-secret"));
         ResponseStatusException error = assertThrows(ResponseStatusException.class,
                 () -> controller.refresh(10200, null));
         assertEquals(HttpStatus.UNAUTHORIZED, error.getStatusCode());
         verifyNoInteractions(refresh);
+        verifyNoInteractions(limiter);
     }
 
     @Test
-    void demoHeaderAllowsRefreshWithoutConfiguredToken() {
+    void validBearerAllowsRefresh() {
         ChannelRefreshService refresh = mock(ChannelRefreshService.class);
+        ProductTrafficLimiter limiter = mock(ProductTrafficLimiter.class);
+        when(limiter.allowRefresh(10200)).thenReturn(true);
         when(refresh.refresh(10200)).thenReturn(ChannelRefreshService.RefreshResult.DELETED);
-        ProductRefreshController controller = new ProductRefreshController(new ProductStore(), refresh);
-        ResponseEntity<?> response = controller.refresh(10200, "true");
+        ProductRefreshController controller = new ProductRefreshController(new ProductStore(), refresh,
+                limiter, new RefreshAuthorization("test-secret"));
+        ResponseEntity<?> response = controller.refresh(10200, "Bearer test-secret");
         assertEquals(HttpStatus.OK, response.getStatusCode());
         assertEquals(Map.of("result", "DELETED"), response.getBody());
     }

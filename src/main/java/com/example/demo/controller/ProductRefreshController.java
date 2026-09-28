@@ -2,6 +2,8 @@ package com.example.demo.controller;
 
 import com.example.demo.repository.ProductStore;
 import com.example.demo.service.ChannelRefreshService;
+import com.example.demo.service.ProductTrafficLimiter;
+import com.example.demo.service.RefreshAuthorization;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.Parameter;
 import io.swagger.v3.oas.annotations.media.Schema;
@@ -21,16 +23,21 @@ import org.springframework.web.server.ResponseStatusException;
 
 import java.util.Map;
 
-@Tag(name = "3.3 商品强制刷新", description = "模拟 ERP 主数据更新及持锁删除商品缓存")
+@Tag(name = "3.4 商品强制刷新", description = "刷新鉴权、独立限流及持锁删除商品缓存")
 @RestController
 @RequestMapping("/api/demo")
 public class ProductRefreshController {
     private final ProductStore store;
     private final ChannelRefreshService refresh;
+    private final ProductTrafficLimiter limiter;
+    private final RefreshAuthorization authorization;
 
-    public ProductRefreshController(ProductStore store, ChannelRefreshService refresh) {
+    public ProductRefreshController(ProductStore store, ChannelRefreshService refresh,
+                                    ProductTrafficLimiter limiter, RefreshAuthorization authorization) {
         this.store = store;
         this.refresh = refresh;
+        this.limiter = limiter;
+        this.authorization = authorization;
     }
 
     @Operation(summary = "模拟 ERP 修改商品主数据", description = "只修改模拟主数据，不主动删除商城缓存；可随后调用演示刷新接口观察新旧数据切换。")
@@ -51,18 +58,20 @@ public class ProductRefreshController {
             @Schema(description = "价格，单位：分", example = "20900") int priceCents) {
     }
 
-    @Operation(summary = "演示请求头删除商品详情缓存", description = "在请求头填 X-Demo-Refresh: true。持锁删除缓存，下一次普通查询回源重建。此请求头仅用于本地功能演示，不是身份认证。")
+    @Operation(summary = "经鉴权与独立限流后强制刷新商品详情", description = "Authorization: Bearer <token>；持锁删除缓存，下一次普通查询回源重建。")
     @ApiResponses({@ApiResponse(responseCode = "200", description = "缓存已删除"),
-            @ApiResponse(responseCode = "401", description = "未提供演示刷新请求头"),
+            @ApiResponse(responseCode = "401", description = "刷新令牌无效"),
+            @ApiResponse(responseCode = "429", description = "刷新频率超限"),
             @ApiResponse(responseCode = "423", description = "同一商品正在刷新")})
-    @PostMapping("/products/{id}/refresh")
+    @PostMapping("/channel/products/{id}/refresh")
     public ResponseEntity<?> refresh(@Parameter(description = "商品 ID", example = "10200") @PathVariable long id,
-                                     @Parameter(description = "本地演示刷新开关，填 true", example = "true")
-                                     @RequestHeader(value = "X-Demo-Refresh", required = false) String demoRefresh) {
-        if (!"true".equalsIgnoreCase(demoRefresh))
-            throw new ResponseStatusException(HttpStatus.UNAUTHORIZED, "X-Demo-Refresh must be true");
+                                     @Parameter(description = "刷新令牌", example = "Bearer <token>")
+                                     @RequestHeader(value = "Authorization", required = false) String bearer) {
+        authorization.require(bearer);
         if (id <= 0)
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "invalid productId");
+        if (!limiter.allowRefresh(id))
+            throw new ResponseStatusException(HttpStatus.TOO_MANY_REQUESTS, "product refresh rate exceeded");
         ChannelRefreshService.RefreshResult result = refresh.refresh(id);
         HttpStatus status = switch (result) {
             case DELETED -> HttpStatus.OK;

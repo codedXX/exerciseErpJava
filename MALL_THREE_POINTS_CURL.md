@@ -4,7 +4,7 @@
 
 - ERP 的 `sources/ERP.API/Apis/Ailai.Product/Controllers/ShopProductController.cs` 提供 `api/single-product/{productId}`，对应本例的 `ProductStore`（模拟主数据）。
 - ShopWeb 的 `Ailai.ShopWeb/Controllers/ProductController.cs` 从 MongoDB 取商品详情，未命中时访问下游，并用进程内分段锁避免同一进程重复写入；其 `refresh=true` 分支先删商品文档再调下游刷新。本例模拟这些业务动作，并把跨实例协调放到 Redis。
-- 截图三条是待学习的设计目标；不能据此推断两个参考仓库已经完整实现这些方案。截图中的“缓存命中率至少 90%”和“超限返回 429”也只是目标/行为，不是这里测出的生产指标。
+- 截图三条是待学习的设计目标；不能据此推断两个参考仓库已经完整实现这些方案。“缓存命中率至少 90%”不是这里测出的生产指标；本示例的限流超限会返回 HTTP 429。
 
 ## 启动
 
@@ -14,15 +14,16 @@
 docker run --name mall-demo-redis -p 6379:6379 -d redis:7
 ```
 
-本仓库原有配置默认使用 6379 主库和 6380/6381 从库。本教程只用单机 Redis，所以必须覆盖原配置；刷新接口不需要启动令牌：
+本仓库原有配置默认使用 6379 主库和 6380/6381 从库。本教程只用单机 Redis，所以必须覆盖原配置。刷新接口需要先设置服务端令牌：
 
 ```powershell
+$env:MALL_REFRESH_TOKEN = 'replace-with-a-long-random-secret'
 mvn '-Dmaven.compiler.fork=true' spring-boot:run '-Dspring-boot.run.arguments=--demo.redis.read-write-split.enabled=false'
 ```
 
 端口默认 `8080`。下面每个 `bash` 代码块都只有**一条标准 cURL 请求**，可分别复制到 Apifox 的「导入 cURL」中。启动 Redis 和应用的命令只是环境准备，不需要导入 Apifox。`X-Demo-User-Id` 是演示身份，不具备认证能力。
 
-也可以打开 **Knife4j**：`http://localhost:8080/doc.html`，在「3.1 商品详情缓存」「3.2 下单限流」「3.3 商品强制刷新」三个分组中直接调试这些接口。强制刷新时在「请求头部」勾选 `X-Demo-Refresh` 这一行，值填 `true`；在「请求参数」填写商品 ID。普通查询和下单不用这个请求头。Apifox 仍可使用下方 cURL，或从 `http://localhost:8080/v3/api-docs` 导入 OpenAPI 文档。
+也可以打开 **Knife4j**：`http://localhost:8080/doc.html`，在「3.1 商品详情缓存」「3.2 下单限流」「3.3 商品渠道普通访问」「3.4 商品强制刷新」中调试。刷新接口使用 `Authorization: Bearer <token>`，令牌须由服务端环境变量 `MALL_REFRESH_TOKEN` 配置。Apifox 也可使用下方 cURL，或从 `http://localhost:8080/v3/api-docs` 导入 OpenAPI 文档。
 
 ## 1. 商品详情缓存互斥与二次检查
 
@@ -96,9 +97,11 @@ curl --location --request POST 'http://localhost:8080/api/demo/orders/submit' --
 
 从第一次成功提交起约 10 秒后，用户 42 可以再次提交。生产代码必须从已认证的用户身份取得 ID，并把接口标识固定在服务端；这里请求头仅为教学输入。
 
-## 3. 普通访问与演示刷新分流
+## 3. 普通访问与强制刷新分流
 
-**含义**：普通 `GET /products/{id}` 给商城用户读取；演示刷新 `POST /products/{id}/refresh` 要求请求头 `X-Demo-Refresh: true`。这只是本地功能开关，任何调用方都能自行添加，不构成身份认证。刷新获取商品互斥锁后只删除详情缓存，不立即回源；下一次普通 GET 缓存未命中时，会通过同一把锁互斥回源并回填。
+**含义**：并发缓存优化演示使用 `GET /api/demo/products/{id}`；渠道普通访问使用独立的 `GET /api/demo/channel/products/{id}`。两个 GET 共用普通查询额度，避免绕过限流；默认 Redis 全局每秒 500 次、每商品每秒 100 次。刷新使用 `POST /api/demo/channel/products/{id}/refresh`，先检查 Bearer 令牌，再使用独立的刷新额度，默认全局每分钟 20 次、每商品每 30 秒 1 次。刷新持商品锁删除缓存，不立即回源；下一次 GET 按同一商品锁互斥回源。额度由多个应用实例共享，超限返回 `429`，Redis 不可用时拒绝请求。普通查询额度可用 `demo.product-limits.read-global-per-second`、`demo.product-limits.read-product-per-second` 调整；刷新全局额度可用 `demo.product-limits.refresh-global-per-minute` 调整。更改额度后，已有 Redis 限流键须清除或更换键版本才会应用新值。
+
+启动应用前在 PowerShell 配置一个仅内部调用方持有的令牌，例如 `$env:MALL_REFRESH_TOKEN = 'replace-with-a-long-random-secret'`。未配置时刷新返回 `503`，不会删除缓存。令牌请使用部署环境的密钥管理方式提供，不要提交到仓库。
 
 ### 按顺序执行的 cURL 测试
 
@@ -115,7 +118,7 @@ curl --location --request PUT 'http://localhost:8080/api/demo/erp/products/10200
 2. 查询商品详情，将 `before` 写入缓存：
 
 ```bash
-curl --location --request GET 'http://localhost:8080/api/demo/products/10200'
+curl --location --request GET 'http://localhost:8080/api/demo/channel/products/10200'
 ```
 
 3. 修改模拟 ERP 主数据。此操作不会主动删除商品缓存：
@@ -127,44 +130,44 @@ curl --location --request PUT 'http://localhost:8080/api/demo/erp/products/10200
 4. 再查详情，`product.name` 应仍为 `before`：
 
 ```bash
-curl --location --request GET 'http://localhost:8080/api/demo/products/10200'
+curl --location --request GET 'http://localhost:8080/api/demo/channel/products/10200'
 ```
 
-5. 不带演示请求头强制刷新，预期 HTTP `401`，缓存不变：
+5. 不带 Authorization 请求头强制刷新，预期 HTTP `401`，缓存不变：
 
 ```bash
-curl --include --request POST 'http://localhost:8080/api/demo/products/10200/refresh'
+curl --include --request POST 'http://localhost:8080/api/demo/channel/products/10200/refresh'
 ```
 
-6. 请求头的值不是 `true` 时也应返回 HTTP `401`：
+6. 令牌错误时也应返回 HTTP `401`：
 
 ```bash
-curl --include --request POST 'http://localhost:8080/api/demo/products/10200/refresh' --header 'X-Demo-Refresh: false'
+curl --include --request POST 'http://localhost:8080/api/demo/channel/products/10200/refresh' --header 'Authorization: Bearer wrong-token'
 ```
 
-7. 带演示请求头删除缓存，预期 HTTP `200`，响应中的 `result` 为 `DELETED`：
+7. 携带有效令牌删除缓存，预期 HTTP `200`，响应中的 `result` 为 `DELETED`：
 
 ```bash
-curl --include --request POST 'http://localhost:8080/api/demo/products/10200/refresh' --header 'X-Demo-Refresh: true'
+curl --include --request POST 'http://localhost:8080/api/demo/channel/products/10200/refresh' --header 'Authorization: Bearer replace-with-a-long-random-secret'
 ```
 
 8. 再查详情，普通查询会回源，`product.name` 应变为 `after`：
 
 ```bash
-curl --location --request GET 'http://localhost:8080/api/demo/products/10200'
+curl --location --request GET 'http://localhost:8080/api/demo/channel/products/10200'
 ```
 
-同一商品正在刷新且锁未释放时，另一个刷新请求会得到 `423 BUSY`；本例的删除操作很快，手工连续点击不一定能复现。商品 GET 和强制刷新没有按请求次数配置独立限流，它们通过商品互斥锁限制并发回源；上文 Redisson 限流只用于下单。
+同一商品正在刷新且锁未释放时，另一个刷新请求会得到 `423 BUSY`；短时间连续刷新同一商品则会得到 `429`。后者是请求频率限流，前者是互斥锁竞争。普通访问两个 GET 共用读取额度，刷新有独立额度。
 
-**边界**：这是单进程内存主数据加单机 Redis 的教学示例。它不接真实 MySQL/MongoDB，也不含真实登录、支付、订单持久化。`X-Demo-Refresh` 只是演示开关，生产环境应改用真实内部身份认证和访问审计。缓存互斥锁的租期必须大于最坏回源时间；实际部署还需监控、限流拒绝率及数据库与缓存的失败补偿。`dbReadCount` 是本进程计数，不能用于计算生产缓存命中率。
-
-
+**边界**：这是单进程内存主数据加单机 Redis 的教学示例。它不接真实 MySQL/MongoDB，也不含真实登录、支付、订单持久化。刷新使用共享密钥鉴权，不能区分操作人员或实现细粒度权限；生产环境还需接入身份与权限体系、审计，以及监控、限流拒绝率和数据库与缓存失败补偿。缓存互斥锁的 10 秒租期必须大于最坏回源时间。`dbReadCount` 是本进程计数，不能用于计算生产缓存命中率；约 90% 的目标仍需真实流量指标验证。
 
 
 
 
 
-# 问题
+
+
+# 历史讨论记录（以下描述的是改造前状态）
 
 明白，你问的是**这段设计里的商品详情模块**，不是仓库里另一个“下单限流”模块。我刚才把两者混在一起了。
 

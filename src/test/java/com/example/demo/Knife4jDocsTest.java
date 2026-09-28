@@ -20,17 +20,18 @@ class Knife4jDocsTest {
     @Autowired ObjectMapper json;
 
     @Test
-    void mallEndpointsAndDemoRefreshHeaderAppearInOpenApi() throws Exception {
+    void separateProductRoutesAndRefreshAuthorizationAppearInOpenApi() throws Exception {
         String body = mvc.perform(get("/v3/api-docs")).andReturn().getResponse().getContentAsString(StandardCharsets.UTF_8);
         JsonNode api = json.readTree(body);
         assertEquals("3.1 商品详情缓存", api.at("/paths/~1api~1demo~1products~1{id}/get/tags/0").asText());
+        assertEquals("3.3 商品渠道普通访问", api.at("/paths/~1api~1demo~1channel~1products~1{id}/get/tags/0").asText());
         assertEquals("3.2 下单限流", api.at("/paths/~1api~1demo~1orders~1submit/post/tags/0").asText());
-        assertEquals("3.3 商品强制刷新", api.at("/paths/~1api~1demo~1products~1{id}~1refresh/post/tags/0").asText());
+        assertEquals("3.4 商品强制刷新", api.at("/paths/~1api~1demo~1channel~1products~1{id}~1refresh/post/tags/0").asText());
         assertTrue(api.at("/paths/~1api~1demo~1orders~1submit/post/summary").asText().contains("限流"));
-        JsonNode parameters = api.at("/paths/~1api~1demo~1products~1{id}~1refresh/post/parameters");
+        JsonNode parameters = api.at("/paths/~1api~1demo~1channel~1products~1{id}~1refresh/post/parameters");
         JsonNode header = null;
         for (JsonNode parameter : parameters) {
-            if ("X-Demo-Refresh".equals(parameter.path("name").asText())) header = parameter;
+            if ("Authorization".equals(parameter.path("name").asText())) header = parameter;
             assertNotEquals("expectedVersion", parameter.path("name").asText());
         }
         assertNotNull(header);

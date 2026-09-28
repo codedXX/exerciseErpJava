@@ -22,7 +22,7 @@ java -jar target/exerciseErpJava-0.0.1-SNAPSHOT.jar
 - **Knife4j 在线接口文档**：[http://localhost:8080/doc.html](http://localhost:8080/doc.html)
 - **OpenAPI 3 JSON 规范地址**：[http://localhost:8080/v3/api-docs](http://localhost:8080/v3/api-docs)
 
-> **说明**：服务启动和下单限流需要 Redis；商品缓存与演示刷新接口也依赖 Redis。刷新只需在请求头填写 `X-Demo-Refresh: true`，无需启动令牌；这不是身份认证。`/api/demo/orders/submit` 使用 Redisson，多个应用实例共享 10 秒内最多 2 次的额度。单机 Redis 的启动方式和应用参数见 [MALL_THREE_POINTS_CURL.md](MALL_THREE_POINTS_CURL.md)；主从读写分离场景则需启动配置中的主从节点。
+> **说明**：服务启动、商品缓存、商品访问与刷新限流、下单限流都需要 Redis。商品缓存优化演示走 `GET /api/demo/products/{id}`；渠道普通访问走 `GET /api/demo/channel/products/{id}`；刷新走 `POST /api/demo/channel/products/{id}/refresh`，要求服务端环境变量 `MALL_REFRESH_TOKEN` 与请求头 `Authorization: Bearer <token>` 匹配。`/api/demo/orders/submit` 使用独立的 Redisson 限流，多个应用实例共享 10 秒内最多 2 次的额度。单机 Redis 的启动方式和应用参数见 [MALL_THREE_POINTS_CURL.md](MALL_THREE_POINTS_CURL.md)；主从读写分离场景则需启动配置中的主从节点。
 
 ---
 
