@@ -1,62 +1,44 @@
 package com.example.demo.service;
 
-import org.springframework.data.redis.core.StringRedisTemplate;
-import org.springframework.data.redis.core.script.DefaultRedisScript;
+import org.redisson.api.RRateLimiter;
+import org.redisson.api.RateType;
+import org.redisson.api.RedissonClient;
 import org.springframework.stereotype.Service;
 
-import java.util.List;
-import java.util.UUID;
+import java.time.Duration;
 
-/** Redis 滑动窗口：同一用户、同一接口，任意连续 10 秒内最多提交 2 次。 */
+/** Shared per-user, per-API order submission limit. */
 @Service
 public class OrderRateLimiter {
-    private static final DefaultRedisScript<List> SCRIPT = new DefaultRedisScript<>();
+    private static final Duration WINDOW = Duration.ofSeconds(10);
+    private static final Duration IDLE_EXPIRY = Duration.ofMinutes(1);
+    private final RedissonClient redisson;
 
-    static {
-        SCRIPT.setResultType(List.class);
-        SCRIPT.setScriptText("""
-                local key = KEYS[1]
-                local time = redis.call('TIME')
-                local now = time[1] * 1000 + math.floor(time[2] / 1000)
-
-                -- 删除 10 秒窗口之外的请求
-                redis.call('ZREMRANGEBYSCORE', key, '-inf', now - 10000)
-                local count = redis.call('ZCARD', key)
-                if count < 2 then
-                    -- UUID 保证同一毫秒的两次请求不会覆盖彼此
-                    redis.call('ZADD', key, now, ARGV[1])
-                    redis.call('PEXPIRE', key, 10000)
-                    return {1, 1 - count, 0}
-                end
-
-                -- 最早的一次请求离开窗口后，才可以重试
-                local oldest = redis.call('ZRANGE', key, 0, 0, 'WITHSCORES')
-                return {0, 0, tonumber(oldest[2]) + 10000 - now}
-                """);
-    }
-
-    private final StringRedisTemplate redis;
-
-    public OrderRateLimiter(StringRedisTemplate redis) {
-        this.redis = redis;
+    public OrderRateLimiter(RedissonClient redisson) {
+        this.redisson = redisson;
     }
 
     public record Decision(boolean allowed, long remaining, long retryAfterMs) {}
 
     public static String windowKey(String userId, String api) {
-        return "mall:order:window:" + userId + ":" + api;
+        return "mall:order:limiter:" + userId + ":" + api;
     }
 
     public Decision acquire(String userId, String api) {
-        String key = windowKey(userId, api);
-        List<?> result = redis.execute(SCRIPT, List.of(key), UUID.randomUUID().toString());
-        if (result == null || result.size() != 3) {
-            throw new IllegalStateException("Redis 限流结果无效");
-        }
-        return new Decision(number(result, 0) == 1, number(result, 1), number(result, 2));
-    }
+        // 按“用户 ID + 接口”生成 Redis 键，为这组请求取得同一个限流器。
+        RRateLimiter limiter = redisson.getRateLimiter(windowKey(userId, api));
 
-    private static long number(List<?> result, int index) {
-        return ((Number) result.get(index)).longValue();
+        // 首次设置限流规则：所有应用实例共享额度，每 10 秒最多 2 次；闲置后自动过期。
+        // trySetRate 不会覆盖已经存在的规则。
+        limiter.trySetRate(RateType.OVERALL, 2, WINDOW, IDLE_EXPIRY);
+
+        // 非阻塞地申请一次额度；额度用尽时立即拒绝。
+        if (!limiter.tryAcquire()) {
+            // Redisson 不提供精确的下次可用时间，这里返回保守的 10 秒重试提示。
+            return new Decision(false, 0, WINDOW.toMillis());
+        }
+
+        // 申请成功；剩余额度是读取时的快照，并发请求可能随即消耗它。
+        return new Decision(true, limiter.availablePermits(), 0);
     }
 }

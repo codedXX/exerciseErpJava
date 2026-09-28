@@ -64,9 +64,9 @@ curl --location --request PUT 'http://localhost:8080/api/demo/erp/products/10300
 curl --location --request GET 'http://localhost:8080/api/demo/products/10300'
 ```
 
-## 2. 下单接口：Redis 滑动窗口
+## 2. 下单接口：Redisson 限流
 
-**含义**：Redis 用 `mall:order:window:<用户ID>:submit` 保存最近 10 秒内成功放行的请求时间。每次下单在同一段 Lua 脚本中删除过期记录、计数并决定是否添加本次请求；这样并发请求和多个应用实例都共享同一额度。任意连续 10 秒最多放行 2 次；超限时不生成订单，返回 HTTP `429`、`Retry-After` 和 `retryAfterMs`。Redis 不可用时，下单不能成功。
+**含义**：每个用户与接口使用一个 Redisson `RRateLimiter`，键为 `mall:order:limiter:<用户ID>:submit`。`RateType.OVERALL` 使多个应用实例共享 10 秒内最多 2 次的额度。`tryAcquire()` 立即返回放行或拒绝；超限时不生成订单，返回 HTTP `429`。响应中的 `Retry-After: 10` 和 `retryAfterMs: 10000` 是保守等待提示，不是精确的下次可用时间。Redis 不可用时，下单不能成功。旧版 Lua 有序集合键使用不同前缀，避免迁移时的数据类型冲突。
 
 连续执行三次（尽量在 10 秒内）：
 
@@ -154,7 +154,7 @@ curl --include --request POST 'http://localhost:8080/api/demo/products/10200/ref
 curl --location --request GET 'http://localhost:8080/api/demo/products/10200'
 ```
 
-同一商品正在刷新且锁未释放时，另一个刷新请求会得到 `423 BUSY`；本例的删除操作很快，手工连续点击不一定能复现。商品 GET 和强制刷新没有按请求次数配置独立限流，它们通过商品互斥锁限制并发回源；上文 Redis 滑动窗口限流只用于下单。
+同一商品正在刷新且锁未释放时，另一个刷新请求会得到 `423 BUSY`；本例的删除操作很快，手工连续点击不一定能复现。商品 GET 和强制刷新没有按请求次数配置独立限流，它们通过商品互斥锁限制并发回源；上文 Redisson 限流只用于下单。
 
 **边界**：这是单进程内存主数据加单机 Redis 的教学示例。它不接真实 MySQL/MongoDB，也不含真实登录、支付、订单持久化。`X-Demo-Refresh` 只是演示开关，生产环境应改用真实内部身份认证和访问审计。缓存互斥锁的租期必须大于最坏回源时间；实际部署还需监控、限流拒绝率及数据库与缓存的失败补偿。`dbReadCount` 是本进程计数，不能用于计算生产缓存命中率。
 

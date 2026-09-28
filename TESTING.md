@@ -22,7 +22,7 @@ java -jar target/exerciseErpJava-0.0.1-SNAPSHOT.jar
 - **Knife4j 在线接口文档**：[http://localhost:8080/doc.html](http://localhost:8080/doc.html)
 - **OpenAPI 3 JSON 规范地址**：[http://localhost:8080/v3/api-docs](http://localhost:8080/v3/api-docs)
 
-> **说明**：服务可以在 Redis 未启动时完成启动，但商品缓存、下单限流和演示刷新接口需要 Redis 才能正常调用。刷新只需在请求头填写 `X-Demo-Refresh: true`，无需启动令牌；这不是身份认证。`/api/demo/orders/submit` 使用 Redis 滑动窗口，多个应用实例共享任意连续 10 秒内最多 2 次的额度。单机 Redis 的启动方式和应用参数见 [MALL_THREE_POINTS_CURL.md](MALL_THREE_POINTS_CURL.md)；主从读写分离场景则需启动配置中的主从节点。
+> **说明**：服务启动和下单限流需要 Redis；商品缓存与演示刷新接口也依赖 Redis。刷新只需在请求头填写 `X-Demo-Refresh: true`，无需启动令牌；这不是身份认证。`/api/demo/orders/submit` 使用 Redisson，多个应用实例共享 10 秒内最多 2 次的额度。单机 Redis 的启动方式和应用参数见 [MALL_THREE_POINTS_CURL.md](MALL_THREE_POINTS_CURL.md)；主从读写分离场景则需启动配置中的主从节点。
 
 ---
 
@@ -390,3 +390,39 @@ mvn test
 >
 > ### 总结
 > `/api/cache/after/get` 之所以能读写分离，是因为 **Lettuce 驱动在建立连接时持有主从拓扑连接池，拦截到读命令后自动分流到从节点（6380/6381）执行**。配合 Cache-Aside 模式（写主库，由主库异步复制给从库失效），实现了读性能水平扩展和写数据强一致性。
+
+
+
+> **Redisson是什么？**
+>
+> 
+>
+> **Redisson** 是一个 Java 的 Redis 客户端。它把 Redis 的能力封装成 Java 对象和接口，常用来实现分布式锁、限流器等功能。
+>
+> 在这个项目里，Redisson 用于**下单限流**：[OrderRateLimiter.java](F:/myProjects/exerciseErpJava/src/main/java/com/example/demo/service/OrderRateLimiter.java) 通过 `RRateLimiter` 限制同一用户 **10 秒内最多提交 2 次**。额度存在 Redis 中，因此多个应用实例会共享这一限制；超限时接口返回 HTTP 429。
+
+
+
+> **limiter.trySetRate(RateType.OVERALL, 2, WINDOW, IDLE_EXPIRY); 这里的第1、4个参数的意思是什么？**
+>
+> * 第一个参数：
+>
+>   * `RateType.OVERALL` 表示：**同一个限流器的额度，由所有应用实例共同使用**。
+>
+>     例如用户 `42` 的 `submit` 限流键配置为 10 秒 2 次：请求即使分别到达应用实例 A 和 B，两台实例合起来也只能放行 2 次。
+>
+>     这里的“共同使用”是**针对同一个限流键**。用户 `43` 使用不同的键，有自己的额度。
+>
+> * 第四个参数：
+>
+>   * `IDLE_EXPIRY` 是这个限流器在 Redis 中的**闲置过期时间**。当前代码将它设为 `Duration.ofMinutes(1)`：某个用户和接口的限流器长期不用时，Redisson 会清理其 Redis 数据，避免访问过的用户越多、限流键越积越多。[Redisson 官方文档](https://redisson.pro/docs/data-and-services/objects/)
+>
+>     它与第三个参数 `WINDOW` 作用不同：**`WINDOW = 10 秒`决定请求额度怎么算；`IDLE_EXPIRY = 1 分钟`决定闲置的限流器何时清理。**清理后再次请求，会重新创建该用户的限流规则。
+>
+>     
+>
+> **意思是在1分钟内，一个用户都没访问的话，就把所有用户清除掉，是吗？**
+>
+> * 不是清除所有用户，而是**每个“用户 ID + 接口”的限流器分别过期**。
+>
+>   例如用户 42 的 `submit` 限流器闲置约 1 分钟，就清理这个限流器在 Redis 中的数据；用户 43 一直在访问，他的限流器仍保留。这里也不会删除用户账号或订单数据，只清理限流状态。

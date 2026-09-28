@@ -1,10 +1,10 @@
 package com.example.demo;
 
 import com.example.demo.service.OrderRateLimiter;
+import org.redisson.api.RedissonClient;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
-import org.springframework.data.redis.core.StringRedisTemplate;
 
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ThreadLocalRandom;
@@ -15,7 +15,7 @@ import static org.junit.jupiter.api.Assertions.*;
 @SpringBootTest(properties = "demo.redis.read-write-split.enabled=false")
 class OrderRateLimiterRedisTest {
     @Autowired OrderRateLimiter limiter;
-    @Autowired StringRedisTemplate redis;
+    @Autowired RedissonClient redisson;
 
     @Test
     void oldestRequestLeavingTheSlidingWindowFreesOneSlot() throws InterruptedException {
@@ -31,15 +31,15 @@ class OrderRateLimiterRedisTest {
             Thread.sleep(5100);
             assertTrue(limiter.acquire(userId, "submit").allowed());
         } finally {
-            redis.delete(key);
+            redisson.getRateLimiter(key).delete();
         }
     }
 
     @Test
-    void concurrentCallsOnTwoInstancesAllowOnlyTwo() {
+    void concurrentCallsOnTwoServicesAllowOnlyTwo() {
         String userId = Long.toString(ThreadLocalRandom.current().nextLong(1, Long.MAX_VALUE));
         String key = OrderRateLimiter.windowKey(userId, "submit");
-        OrderRateLimiter secondInstance = new OrderRateLimiter(redis);
+        OrderRateLimiter secondInstance = new OrderRateLimiter(redisson);
         try {
             var calls = IntStream.range(0, 20)
                     .mapToObj(i -> CompletableFuture.supplyAsync(() ->
@@ -47,7 +47,7 @@ class OrderRateLimiterRedisTest {
                     .toList();
             assertEquals(2, calls.stream().filter(CompletableFuture::join).count());
         } finally {
-            redis.delete(key);
+            redisson.getRateLimiter(key).delete();
         }
     }
 }

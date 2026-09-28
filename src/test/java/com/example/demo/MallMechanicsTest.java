@@ -30,7 +30,7 @@ class MallMechanicsTest {
 
     @Test
     void orderWindowIsScopedByUserAndApi() {
-        assertEquals("mall:order:window:42:submit", OrderRateLimiter.windowKey("42", "submit"));
+        assertEquals("mall:order:limiter:42:submit", OrderRateLimiter.windowKey("42", "submit"));
         assertNotEquals(OrderRateLimiter.windowKey("42", "submit"), OrderRateLimiter.windowKey("43", "submit"));
     }
 

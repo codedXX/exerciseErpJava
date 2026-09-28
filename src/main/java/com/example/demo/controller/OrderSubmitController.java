@@ -18,7 +18,7 @@ import org.springframework.web.server.ResponseStatusException;
 import java.util.Map;
 import java.util.concurrent.atomic.AtomicLong;
 
-@Tag(name = "3.2 下单限流", description = "Redis 滑动窗口限制同一用户提交订单的次数")
+@Tag(name = "3.2 下单限流", description = "Redisson 限制同一用户提交订单的次数")
 @RestController
 @RequestMapping("/api/demo")
 public class OrderSubmitController {
@@ -29,7 +29,7 @@ public class OrderSubmitController {
         this.limiter = limiter;
     }
 
-    @Operation(summary = "提交订单（Redis 滑动窗口限流）", description = "按用户 ID 和 submit 接口限流，任意连续 10 秒最多提交 2 次；Redis 中的额度由多个应用实例共享。X-Demo-User-Id 仅供演示，不是已认证身份。")
+    @Operation(summary = "提交订单（Redisson 限流）", description = "按用户 ID 和 submit 接口限流，10 秒最多提交 2 次；Redis 中的额度由多个应用实例共享。X-Demo-User-Id 仅供演示，不是已认证身份。")
     @ApiResponses({@ApiResponse(responseCode = "200", description = "提交成功，返回模拟订单 ID"),
             @ApiResponse(responseCode = "429", description = "超过限流额度，响应头含 Retry-After")})
     @PostMapping("/orders/submit")
