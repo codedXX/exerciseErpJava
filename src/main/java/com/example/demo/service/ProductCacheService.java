@@ -32,7 +32,7 @@ public class ProductCacheService {
 
     public ProductStore.Product get(long id) {
         // 非法商品 ID 直接拒绝，不进入缓存和回源流程。
-        if (id <= 0) throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "productId must be positive");
+        if (id <= 0) throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "商品 ID 必须为正数");
         // 同一商品的请求使用同一个缓存键；命中时无需加锁。
         String key = cacheKey(id);
         String cached = redis.opsForValue().get(key);
@@ -68,7 +68,7 @@ public class ProductCacheService {
             catch (InterruptedException ex) { Thread.currentThread().interrupt(); break; }
         }
         // 多轮等待后仍未读到缓存，也未能完成回源，通知调用方稍后重试。
-        throw new ResponseStatusException(HttpStatus.SERVICE_UNAVAILABLE, "product cache is rebuilding");
+        throw new ResponseStatusException(HttpStatus.SERVICE_UNAVAILABLE, "商品缓存正在重建，请稍后重试");
     }
 
     // SET NX PX/EX 的锁附带租期，进程崩溃后不会永久卡住；实际生产需使租期覆盖最长回源时间。
@@ -103,12 +103,12 @@ public class ProductCacheService {
 
     public String encode(ProductStore.Product product) {
         try { return json.writeValueAsString(product); }
-        catch (JsonProcessingException ex) { throw new IllegalStateException("cannot encode product", ex); }
+        catch (JsonProcessingException ex) { throw new IllegalStateException("商品数据编码失败", ex); }
     }
 
     private ProductStore.Product decode(String value) {
         if (NULL_MARKER.equals(value)) return null;
         try { return json.readValue(value, ProductStore.Product.class); }
-        catch (JsonProcessingException ex) { throw new IllegalStateException("invalid cached product", ex); }
+        catch (JsonProcessingException ex) { throw new IllegalStateException("缓存中的商品数据无效", ex); }
     }
 }

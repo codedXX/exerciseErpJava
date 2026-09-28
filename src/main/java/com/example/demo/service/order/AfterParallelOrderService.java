@@ -57,7 +57,7 @@ public class AfterParallelOrderService implements OrderDetailQueryService {
     @Override
     public OrderDetailVO getOrderDetail(Long orderId) {
         long startTime = System.currentTimeMillis();
-        log.info("【优化后-并行查询】通过 ExecutorService.submit 异步并发提交任务，orderId: {}", orderId);
+        log.info("【优化后-并行查询】通过 ExecutorService.submit 异步并发提交任务，订单 ID：{}", orderId);
 
         // 1. 初始化本地订单基本数据
         Long customerId = 8888L;

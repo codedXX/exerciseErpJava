@@ -7,7 +7,7 @@ import org.springframework.stereotype.Service;
 
 import java.time.Duration;
 
-/** Shared per-user, per-API order submission limit. */
+/** 按用户和接口分别限流，多个实例共享下单额度。 */
 @Service
 public class OrderRateLimiter {
     private static final Duration WINDOW = Duration.ofSeconds(10);

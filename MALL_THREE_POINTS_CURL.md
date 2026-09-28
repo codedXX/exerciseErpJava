@@ -89,7 +89,7 @@ curl --location --request POST 'http://localhost:8080/api/demo/orders/submit' --
 curl --location --request POST 'http://localhost:8080/api/demo/orders/submit' --header 'X-Demo-User-Id: 42'
 ```
 
-前两次为 `200`，第三次为 `429`。另一个用户有自己的窗口：
+前两次为 `200`，第三次为 `429`，响应中的 `message` 为“下单请求过于频繁，请稍后重试”。另一个用户有自己的窗口：
 
 ```bash
 curl --location --request POST 'http://localhost:8080/api/demo/orders/submit' --header 'X-Demo-User-Id: 43'
@@ -145,7 +145,7 @@ curl --include --request POST 'http://localhost:8080/api/demo/channel/products/1
 curl --include --request POST 'http://localhost:8080/api/demo/channel/products/10200/refresh' --header 'Authorization: Bearer wrong-token'
 ```
 
-7. 携带有效令牌删除缓存，预期 HTTP `200`，响应中的 `result` 为 `DELETED`：
+7. 携带有效令牌删除缓存，预期 HTTP `200`，响应中的 `result` 为 `DELETED`，`message` 为“商品缓存已删除”：
 
 ```bash
 curl --include --request POST 'http://localhost:8080/api/demo/channel/products/10200/refresh' --header 'Authorization: Bearer replace-with-a-long-random-secret'
@@ -157,7 +157,7 @@ curl --include --request POST 'http://localhost:8080/api/demo/channel/products/1
 curl --location --request GET 'http://localhost:8080/api/demo/channel/products/10200'
 ```
 
-同一商品正在刷新且锁未释放时，另一个刷新请求会得到 `423 BUSY`；短时间连续刷新同一商品则会得到 `429`。后者是请求频率限流，前者是互斥锁竞争。普通访问两个 GET 共用读取额度，刷新有独立额度。
+同一商品正在刷新且锁未释放时，另一个刷新请求会得到 `423`，`result` 为 `BUSY`，`message` 为“该商品正在刷新，请稍后重试”；短时间连续刷新同一商品则会得到 `429`。后者是请求频率限流，前者是互斥锁竞争。普通访问两个 GET 共用读取额度，刷新有独立额度。
 
 **边界**：这是单进程内存主数据加单机 Redis 的教学示例。它不接真实 MySQL/MongoDB，也不含真实登录、支付、订单持久化。刷新使用共享密钥鉴权，不能区分操作人员或实现细粒度权限；生产环境还需接入身份与权限体系、审计，以及监控、限流拒绝率和数据库与缓存失败补偿。缓存互斥锁的 10 秒租期必须大于最坏回源时间。`dbReadCount` 是本进程计数，不能用于计算生产缓存命中率；约 90% 的目标仍需真实流量指标验证。
 

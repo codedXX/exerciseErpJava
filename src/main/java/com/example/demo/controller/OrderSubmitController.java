@@ -36,14 +36,14 @@ public class OrderSubmitController {
     public ResponseEntity<?> submit(@Parameter(description = "仅用于演示的用户 ID；生产环境应取登录身份", example = "42")
                                     @RequestHeader("X-Demo-User-Id") String userId) {
         if (!userId.matches("[0-9]{1,18}"))
-            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "invalid user id");
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "用户 ID 无效");
 
         OrderRateLimiter.Decision decision = limiter.acquire(userId, "submit");
         if (!decision.allowed()) {
             HttpHeaders headers = new HttpHeaders();
             headers.set("Retry-After", String.valueOf((decision.retryAfterMs() + 999) / 1000));
             return new ResponseEntity<>(
-                    Map.of("error", "RATE_LIMITED", "retryAfterMs", decision.retryAfterMs()),
+                    Map.of("error", "RATE_LIMITED", "message", "下单请求过于频繁，请稍后重试", "retryAfterMs", decision.retryAfterMs()),
                     headers, HttpStatus.TOO_MANY_REQUESTS);
         }
 

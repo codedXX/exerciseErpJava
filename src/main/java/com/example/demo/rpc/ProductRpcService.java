@@ -17,13 +17,13 @@ public class ProductRpcService {
     private static final Logger log = LoggerFactory.getLogger(ProductRpcService.class);
 
     public List<ProductItemDTO> getProductItemsByOrderId(Long orderId) {
-        log.info("[ProductRpcService] 开始查询订单商品列表，orderId: {}, 当前线程: {}", orderId, Thread.currentThread().getName());
+        log.info("[ProductRpcService] 开始查询订单商品列表，订单 ID：{}，当前线程：{}", orderId, Thread.currentThread().getName());
         try {
             // 模拟 RPC 网络 I/O 与业务查询耗时 400ms
             TimeUnit.MILLISECONDS.sleep(400);
         } catch (InterruptedException e) {
             Thread.currentThread().interrupt();
-            throw new RuntimeException("Product RPC query interrupted", e);
+            throw new RuntimeException("商品 RPC 查询被中断", e);
         }
         log.info("[ProductRpcService] 查询订单商品列表完成");
         return List.of(

@@ -87,6 +87,7 @@ class MallMechanicsTest {
         ResponseEntity<?> third = controller.submit("42");
         assertEquals(HttpStatus.TOO_MANY_REQUESTS, third.getStatusCode());
         assertEquals("5", third.getHeaders().getFirst("Retry-After"));
+        assertEquals(Map.of("error", "RATE_LIMITED", "message", "下单请求过于频繁，请稍后重试", "retryAfterMs", 5000L), third.getBody());
     }
 
     @Test
@@ -112,6 +113,20 @@ class MallMechanicsTest {
                 limiter, new RefreshAuthorization("test-secret"));
         ResponseEntity<?> response = controller.refresh(10200, "Bearer test-secret");
         assertEquals(HttpStatus.OK, response.getStatusCode());
-        assertEquals(Map.of("result", "DELETED"), response.getBody());
+        assertEquals(Map.of("result", "DELETED", "message", "商品缓存已删除"), response.getBody());
+    }
+
+    @Test
+    void busyRefreshReturnsChineseMessage() {
+        ChannelRefreshService refresh = mock(ChannelRefreshService.class);
+        ProductTrafficLimiter limiter = mock(ProductTrafficLimiter.class);
+        when(limiter.allowRefresh(10200)).thenReturn(true);
+        when(refresh.refresh(10200)).thenReturn(ChannelRefreshService.RefreshResult.BUSY);
+        ProductRefreshController controller = new ProductRefreshController(new ProductStore(), refresh,
+                limiter, new RefreshAuthorization("test-secret"));
+
+        ResponseEntity<?> response = controller.refresh(10200, "Bearer test-secret");
+        assertEquals(HttpStatus.LOCKED, response.getStatusCode());
+        assertEquals(Map.of("result", "BUSY", "message", "该商品正在刷新，请稍后重试"), response.getBody());
     }
 }

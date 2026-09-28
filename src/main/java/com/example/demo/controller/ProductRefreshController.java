@@ -47,7 +47,7 @@ public class ProductRefreshController {
     public ProductStore.Product update(@Parameter(description = "商品 ID", example = "10200") @PathVariable long id,
                                        @RequestBody ProductInput input) {
         if (id <= 0 || input.name() == null || input.name().isBlank() || input.priceCents() < 0)
-            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "invalid product");
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "商品参数无效");
         ProductStore.Product product = new ProductStore.Product(id, input.name(), input.priceCents());
         store.save(product);
         return product;
@@ -69,14 +69,16 @@ public class ProductRefreshController {
                                      @RequestHeader(value = "Authorization", required = false) String bearer) {
         authorization.require(bearer);
         if (id <= 0)
-            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "invalid productId");
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "商品 ID 无效");
         if (!limiter.allowRefresh(id))
-            throw new ResponseStatusException(HttpStatus.TOO_MANY_REQUESTS, "product refresh rate exceeded");
+            throw new ResponseStatusException(HttpStatus.TOO_MANY_REQUESTS, "商品刷新请求过于频繁");
         ChannelRefreshService.RefreshResult result = refresh.refresh(id);
         HttpStatus status = switch (result) {
             case DELETED -> HttpStatus.OK;
             case BUSY -> HttpStatus.LOCKED;
         };
-        return ResponseEntity.status(status).body(Map.of("result", result.name()));
+        return ResponseEntity.status(status).body(Map.of(
+                "result", result.name(),
+                "message", result == ChannelRefreshService.RefreshResult.DELETED ? "商品缓存已删除" : "该商品正在刷新，请稍后重试"));
     }
 }

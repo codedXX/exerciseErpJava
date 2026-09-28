@@ -57,7 +57,7 @@ public class OrderBenchmarkController {
     /**
      * 对比基准测试接口：一次性调用优化前与优化后，并输出耗时与性能提升比
      */
-    @Operation(summary = "【一键对比】串行 vs 并行性能基准测试", description = "一次性调用串行与并行两种实现，自动对比耗时差、降低比例与提速倍数")
+    @Operation(summary = "【一键对比】串行与并行性能基准测试", description = "一次性调用串行与并行两种实现，自动对比耗时差、降低比例与提速倍数")
     @GetMapping("/compare")
     public Map<String, Object> comparePerformance(
             @Parameter(description = "订单ID", example = "1001") @RequestParam(defaultValue = "1001") Long orderId) {

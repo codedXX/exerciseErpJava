@@ -182,9 +182,9 @@ curl --location --request GET 'http://localhost:8080/api/cache/info'
 ```json
 {
   "strategy": "REPLICA_PREFERRED",
-  "description": "读请求优先分流到 Replica 从库；写/删命令强制走 Master 主库；从库不可用时自动回退 Master",
-  "readRouting": "Replica Nodes (e.g. 127.0.0.1:6380, 127.0.0.1:6381)",
-  "writeRouting": "Master Node (127.0.0.1:6379)",
+  "description": "读请求优先分流到从节点；写入和删除命令由主节点处理；从节点不可用时自动回退到主节点",
+  "readRouting": "从节点（例如 127.0.0.1:6380、127.0.0.1:6381）",
+  "writeRouting": "主节点（127.0.0.1:6379）",
   "protectedData": [
     "品牌详情缓存 (erp:brand:*)",
     "商品系列缓存 (erp:brand:series:*)"
@@ -195,7 +195,7 @@ curl --location --request GET 'http://localhost:8080/api/cache/info'
 ---
 
 ### 接口 5：【优化前】常规单节点读取品牌缓存
-- **接口说明**：读命令直接打在 Master 节点上。
+- **接口说明**：读命令直接由主节点处理。
 - **请求方式**：`GET`
 - **请求 URL**：`http://localhost:8080/api/cache/before/get?brandId=501`
 - **cURL 命令**：
@@ -205,8 +205,8 @@ curl --location --request GET 'http://localhost:8080/api/cache/before/get?brandI
 - **预期响应数据**：
 ```json
 {
-  "mode": "优化前：读写全部打到 Master 节点",
-  "routedTo": "Master (127.0.0.1:6379)",
+  "mode": "优化前：读写全部由主节点处理",
+  "routedTo": "主节点（127.0.0.1:6379）",
   "brand": {
     "brandId": 501,
     "brandName": "Sony 索尼",
@@ -235,7 +235,7 @@ curl --location --request GET 'http://localhost:8080/api/cache/after/get?brandId
 ```json
 {
   "mode": "优化后：基于 Lettuce ReadFrom.REPLICA_PREFERRED 主从读写分离",
-  "routedTo": "Replica 从节点 (127.0.0.1:6380 / 6381) 进行读分流",
+  "routedTo": "从节点（127.0.0.1:6380 / 6381）分担读请求",
   "brand": {
     "brandId": 501,
     "brandName": "Sony 索尼",
@@ -253,7 +253,7 @@ curl --location --request GET 'http://localhost:8080/api/cache/after/get?brandId
 ---
 
 ### 接口 7：【优化后】写操作与缓存失效（强制走主节点）
-- **接口说明**：更新品牌数据并失效缓存，写命令由 Lettuce 自动识别并强制发往 Master 节点（6379）。
+- **接口说明**：更新品牌数据并失效缓存，写命令由 Lettuce 自动识别并发往主节点（6379）。
 - **请求方式**：`POST`
 - **请求 URL**：`http://localhost:8080/api/cache/after/update`
 - **请求头**：`Content-Type: application/json`
@@ -277,8 +277,8 @@ curl --location --request POST 'http://localhost:8080/api/cache/after/update' \
 ```json
 {
   "brandId": 501,
-  "message": "品牌信息已更新，缓存已通过 Master 节点安全失效",
-  "writeRoutedTo": "Master 节点 (127.0.0.1:6379)"
+  "message": "品牌信息已更新，主节点上的缓存已安全失效",
+  "writeRoutedTo": "主节点（127.0.0.1:6379）"
 }
 ```
 

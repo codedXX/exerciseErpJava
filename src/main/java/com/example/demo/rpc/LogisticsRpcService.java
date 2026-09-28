@@ -16,13 +16,13 @@ public class LogisticsRpcService {
     private static final Logger log = LoggerFactory.getLogger(LogisticsRpcService.class);
 
     public LogisticsDTO getLogisticsByOrderId(Long orderId) {
-        log.info("[LogisticsRpcService] 开始查询发货物流信息，orderId: {}, 当前线程: {}", orderId, Thread.currentThread().getName());
+        log.info("[LogisticsRpcService] 开始查询发货物流信息，订单 ID：{}，当前线程：{}", orderId, Thread.currentThread().getName());
         try {
             // 模拟 RPC 网络 I/O 与业务查询耗时 300ms
             TimeUnit.MILLISECONDS.sleep(300);
         } catch (InterruptedException e) {
             Thread.currentThread().interrupt();
-            throw new RuntimeException("Logistics RPC query interrupted", e);
+            throw new RuntimeException("物流 RPC 查询被中断", e);
         }
         log.info("[LogisticsRpcService] 查询发货物流信息完成");
         return LogisticsDTO.builder()

@@ -10,7 +10,7 @@ import org.springframework.web.server.ResponseStatusException;
 
 import java.time.Duration;
 
-/** Shared Redis quotas for both ordinary read routes and the separate refresh route. */
+/** 普通查询入口共享 Redis 限流额度，刷新入口使用独立额度。 */
 @Service
 public class ProductTrafficLimiter {
     private static final Duration IDLE_EXPIRY = Duration.ofMinutes(5);
@@ -40,13 +40,13 @@ public class ProductTrafficLimiter {
     }
 
     private boolean acquire(String key, long rate, Duration window) {
-        if (rate < 1) throw new IllegalStateException("product rate limit must be positive");
+        if (rate < 1) throw new IllegalStateException("商品限流额度必须为正数");
         try {
             RRateLimiter limiter = redisson.getRateLimiter(key);
             limiter.trySetRate(RateType.OVERALL, rate, window, IDLE_EXPIRY);
             return limiter.tryAcquire();
         } catch (Exception ex) {
-            throw new ResponseStatusException(HttpStatus.SERVICE_UNAVAILABLE, "product rate limiter unavailable", ex);
+            throw new ResponseStatusException(HttpStatus.SERVICE_UNAVAILABLE, "商品限流服务暂不可用", ex);
         }
     }
 }

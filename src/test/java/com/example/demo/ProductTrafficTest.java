@@ -31,6 +31,7 @@ class ProductTrafficTest {
         assertEquals("sample", ((ProductStore.Product) optimized.product(10200).get("product")).name());
         ResponseStatusException rejected = assertThrows(ResponseStatusException.class, () -> channel.product(10200));
         assertEquals(HttpStatus.TOO_MANY_REQUESTS, rejected.getStatusCode());
+        assertEquals("商品读取请求过于频繁", rejected.getReason());
         verify(cache, times(1)).get(10200);
     }
 
@@ -44,6 +45,7 @@ class ProductTrafficTest {
         ResponseStatusException rejected = assertThrows(ResponseStatusException.class,
                 () -> controller.refresh(10200, "Bearer wrong"));
         assertEquals(HttpStatus.UNAUTHORIZED, rejected.getStatusCode());
+        assertEquals("刷新接口身份验证失败", rejected.getReason());
         verifyNoInteractions(refresh, limiter);
     }
 
@@ -60,6 +62,7 @@ class ProductTrafficTest {
         ResponseStatusException rejected = assertThrows(ResponseStatusException.class,
                 () -> controller.refresh(10200, "Bearer secret-value"));
         assertEquals(HttpStatus.TOO_MANY_REQUESTS, rejected.getStatusCode());
+        assertEquals("商品刷新请求过于频繁", rejected.getReason());
         verify(refresh, times(1)).refresh(10200);
     }
 
@@ -69,6 +72,7 @@ class ProductTrafficTest {
         ResponseStatusException rejected = assertThrows(ResponseStatusException.class,
                 () -> authorization.require("Bearer anything"));
         assertEquals(HttpStatus.SERVICE_UNAVAILABLE, rejected.getStatusCode());
+        assertEquals("尚未配置刷新令牌", rejected.getReason());
     }
 
     @Test

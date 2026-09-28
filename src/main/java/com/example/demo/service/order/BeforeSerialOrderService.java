@@ -35,7 +35,7 @@ public class BeforeSerialOrderService implements OrderDetailQueryService {
     @Override
     public OrderDetailVO getOrderDetail(Long orderId) {
         long startTime = System.currentTimeMillis();
-        log.info("【优化前-串行查询】开始聚合订单详情，orderId: {}", orderId);
+        log.info("【优化前-串行查询】开始聚合订单详情，订单 ID：{}", orderId);
 
         // 1. 模拟查询本地订单主表基本信息（例如：10ms）
         Long customerId = 8888L;

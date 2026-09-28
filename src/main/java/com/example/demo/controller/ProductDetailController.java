@@ -37,10 +37,10 @@ public class ProductDetailController {
             @ApiResponse(responseCode = "503", description = "缓存正在重建，等待超时")})
     @GetMapping("/products/{id}")
     public Map<String, Object> product(@Parameter(description = "商品 ID", example = "10200") @PathVariable long id) {
-        if (id <= 0) throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "productId must be positive");
-        if (!limiter.allowRead(id)) throw new ResponseStatusException(HttpStatus.TOO_MANY_REQUESTS, "product read rate exceeded");
+        if (id <= 0) throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "商品 ID 必须为正数");
+        if (!limiter.allowRead(id)) throw new ResponseStatusException(HttpStatus.TOO_MANY_REQUESTS, "商品读取请求过于频繁");
         ProductStore.Product product = cache.get(id);
-        if (product == null) throw new ResponseStatusException(HttpStatus.NOT_FOUND, "product not found");
+        if (product == null) throw new ResponseStatusException(HttpStatus.NOT_FOUND, "商品不存在");
         return Map.of("product", product, "dbReadCount", store.readCount(), "cacheKey", ProductCacheService.cacheKey(id));
     }
 }

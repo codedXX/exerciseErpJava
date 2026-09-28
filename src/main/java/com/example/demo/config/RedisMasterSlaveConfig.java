@@ -26,9 +26,9 @@ import java.util.List;
  * 核心原理：
  * 1. Lettuce 客户端内置对主从/哨兵/集群拓扑的命令路由机制；
  * 2. 通过设置 ReadFrom.REPLICA_PREFERRED（优先从节点读）：
- *    - 所有读命令（GET, MGET, HGET, SMEMBERS 等）被自动路由至 Replica 从节点分流；
- *    - 当所有从节点宕机或网络分区时，读请求自动优雅回退到 Master 节点，避免服务不可用；
- *    - 所有写命令（SET, DEL, HSET, EXPIRE 等）始终强制路由至 Master 主节点，保证数据一致性；
+ *    - 所有读命令（GET, MGET, HGET, SMEMBERS 等）被自动路由至从节点分流；
+ *    - 当所有从节点宕机或网络分区时，读请求自动回退到主节点，避免服务不可用；
+ *    - 所有写命令（SET, DEL, HSET, EXPIRE 等）始终路由至主节点，保证数据一致性；
  * 3. 适用场景：高频读、低频写的基础缓存（如品牌、商品类目、系列列表、配置字典等）。
  */
 @Configuration
@@ -61,9 +61,9 @@ public class RedisMasterSlaveConfig {
     @Primary
     @ConditionalOnProperty(name = "demo.redis.read-write-split.enabled", havingValue = "true", matchIfMissing = false)
     public RedisConnectionFactory masterReplicaConnectionFactory() {
-        log.info("【Redis配置】正在初始化 Redis 静态主从拓扑连接工厂，Master: {}:{}", masterHost, masterPort);
+        log.info("【Redis 配置】正在初始化静态主从拓扑连接工厂，主节点：{}:{}", masterHost, masterPort);
 
-        // 1. 构建主从拓扑：1 个 Master + 2 个 Replica
+        // 1. 构建主从拓扑：1 个主节点和 2 个从节点
         RedisStaticMasterReplicaConfiguration topology =
                 new RedisStaticMasterReplicaConfiguration(masterHost, masterPort);
 
@@ -75,8 +75,8 @@ public class RedisMasterSlaveConfig {
         /**
          * ReadFrom.REPLICA_PREFERRED 的含义：
          *
-         * 优先选择从库（Replica）执行读操作；
-         * 当两个从库全部宕机或网络分区时，自动优雅降级回退到 Master 执行读，保证业务高可用，不会直接抛错。
+         * 优先选择从节点执行读操作；
+         * 当两个从节点全部宕机或网络分区时，自动回退到主节点执行读操作。
          */
 
         // 2. 设置读写分离路由规则

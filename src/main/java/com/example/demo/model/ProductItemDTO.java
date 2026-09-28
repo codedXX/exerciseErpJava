@@ -19,7 +19,7 @@ import java.math.BigDecimal;
 @AllArgsConstructor
 public class ProductItemDTO implements Serializable {
 
-    @Schema(description = "SKU ID", example = "1001")
+    @Schema(description = "商品规格 ID", example = "1001")
     private Long skuId;
 
     @Schema(description = "商品名称", example = "智能降噪蓝牙耳机")
